@@ -1,7 +1,10 @@
+from unittest import result
 from lb.models import Submission, User
 from random import randint
 import functools
-
+import math
+from pathlib import Path
+import numpy as np
 def get_leaderboard():
     """
     Get the current leaderboard
@@ -59,7 +62,7 @@ def get_leaderboard():
         {
             "user": obj.user.username,
             "score": obj.score,
-            "subs": [int(x) for x in obj.subs.split()],
+            "subs": [(x) for x in obj.subs.split()],
             "avatar": obj.avatar,
             "time": obj.time,
             "votes": obj.user.votes
@@ -69,6 +72,43 @@ def get_leaderboard():
 
     # 方案3：调用 Django 的 API (俺不会了
     # ...
+
+def extract_results(content:str) -> np.array:
+
+    lines = list(filter(None,content.split('\n')))
+    print(lines)
+    del lines[0]
+    results = np.chararray((3,len(lines)))
+    for idx, line in enumerate(lines):
+        str_answers = line.strip().split(',')
+        # print(str_answers)
+        for i in range(3):
+            # print(i)
+            if str_answers[i+1] == 'True':
+                results[i][idx] = 'True'
+            elif str_answers[i+1] == 'False':
+                results[i][idx] = 'False'
+    return results
+
+def interpolate(x1, x2, y1, y2, x):
+    if x < x1:
+        return y1
+    if x > x2:
+        return y2
+    return math.sqrt((x - x1) / (x2 - x1)) * (y2 - y1) + y1
+
+def main_score(result: list):
+    """
+    :param result: catagory accuracy, element value in [0, 1]
+    :return: main_score
+    """
+    mean_result = sum(result) / 3
+    return round(
+        55 * interpolate(.5, .8, 0, 1, mean_result) +
+        15 * interpolate(.5, .7, 0, 1, result[0]) +
+        15 * interpolate(.5, .9, 0, 1, result[1]) +
+        15 * interpolate(.5, .75, 0, 1, result[2])
+    )
 
 def judge(content: str):
     """
@@ -82,5 +122,27 @@ def judge(content: str):
     #  captured in the view function.
     #  You can define the calculation of main score arbitrarily.
 
-    subs = [randint(0, 100) for _ in range(3)]
-    return sum(subs), subs
+    ground_truth_path = Path.cwd() / 'lb/ground_truth.txt'
+    with open(ground_truth_path , 'r') as f:
+        raw_answers = f.read()
+    answers = extract_results(raw_answers)
+
+    try:
+        results = extract_results(content)
+        
+        # content_path = Path.cwd() / 'content.txt'
+        # with open(content_path , 'r') as f:
+        #     raw_content = f.read()
+        # results = extract_results(raw_content)
+
+    except Exception as e:
+        raise e('content is invalid')
+    
+    total = answers[1].size
+    # print(total)
+    subs = []
+    for i in range(3):
+        right = np.sum(np.compare_chararrays(results[i], answers[i],'==',False)==True)
+        subs.append(right / total * 100)
+    # print(subs)
+    return main_score(subs), " ".join(str(sub) for sub in subs)

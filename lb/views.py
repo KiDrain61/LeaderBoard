@@ -1,3 +1,5 @@
+from time import time
+from urllib import response
 from django.http import (
     HttpRequest,
     JsonResponse,
@@ -19,6 +21,7 @@ def hello(req: HttpRequest):
     })
 
 # TODO: Add HTTP method check
+@method(["GET"])
 def leaderboard(req: HttpRequest):
     return JsonResponse(
         utils.get_leaderboard(),
@@ -27,18 +30,89 @@ def leaderboard(req: HttpRequest):
 
 
 @method(["GET"])
-def history(req: HttpRequest, username: str):
+def history(req: HttpRequest, qusername: str):
     # TODO: Complete `/history/<slug:username>` API
-
-    raise NotImplementedError
+    try:
+        quser = User.objects.filter(username=qusername).first()
+    except:
+        return JsonResponse(
+            {
+                'code': -1
+            }
+        )
+    submissions = Submission.objects.filter(user=quser).order_by("time")
+    return JsonResponse(
+        {
+            "code": 0,
+            "submissions":[
+                model_to_dict(sub, exclude=["id","user","avatar"])
+                for sub in submissions
+            ]
+        }
+    )
+        
+    
 
 
 @method(["POST"])
 @csrf_exempt
 def submit(req: HttpRequest):
-    # TODO: Complete `/submit` API
+    info = json.loads(req.body)
+    try:
+        pusername = info["user"]
+        pavatar = info["avatar"]
+        pcontent = info["content"]
+    except KeyError as ke:
+        return JsonResponse(
+            {
+                "code": 1,
+                "msg": "参数不全啊"    
+            }
+        )
+        
+    if len(pusername) > 255:
+        return JsonResponse(
+            {
+                "code": -1,
+                "msg": "用户名太长了啊"    
+            }
+        )        
+    
+    if len(pavatar) > 100 * 1024:
+        return JsonResponse(
+            {
+                "code": -2,
+                "msg": "图像太大了啊"    
+            }
+        ) 
+        
+    try:
+        [pscore,psubs] = utils.judge(pcontent)
+    except Exception as e:
+        return JsonResponse(
+            {
+                "code": -3,
+                "msg": "提交内容非法呜呜",
+                "error": e,
+                "content": pcontent,
+            }
+        ) 
+    
+    try:
+        puser = User.objects.get(username=pusername)
+    except Exception as e:
+        puser = User.objects.create(username=pusername)
+    
+    Submission.objects.create(user=puser, avatar=pavatar, time=time(),score=pscore,subs=psubs)
 
-    raise NotImplementedError
+    return JsonResponse({
+        "code": 0,
+        "msg": "提交成功",
+        "data": {
+            "leaderboard": utils.get_leaderboard()
+        }
+    })
+    
 
 
 @method(["POST"])
@@ -47,9 +121,25 @@ def vote(req: HttpRequest):
     if 'User-Agent' not in req.headers \
             or 'requests' in req.headers['User-Agent']:
         return JsonResponse({
-            "code": -1
+            "code": -1,
+            "msg": "请求不合理啊"
+        })
+    try:
+        puser = json.loads(req.body)["user"]
+        user = User.objects.get(username=puser)
+        user.votes += 1
+        user.save()
+        return JsonResponse({
+            "code": 0,
+            "data": {
+                "leaderboard": utils.get_leaderboard()
+            }
+        })
+    except Exception as e:
+        return JsonResponse({
+            "code": -1,
+            "msg": "用户不存在呜呜",
+            "error": e,
         })
 
     # TODO: Complete `/vote` API
-
-    raise NotImplementedError
